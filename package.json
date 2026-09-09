@@ -1,0 +1,29 @@
+{
+  "name": "housing-agent-backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "db:init": "node scripts/init-db.js",
+    "clean:test-users": "node scripts/clean-test-users.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.0.0",
+    "express": "^5.2.1",
+    "google-auth-library": "^11.0.2",
+    "joi": "^18.2.8",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.24.3",
+    "passport": "^0.7.0",
+    "passport-google-oauth20": "^2.0.0",
+    "passport-jwt": "^4.0.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
