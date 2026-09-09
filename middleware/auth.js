@@ -11,10 +11,14 @@ passport.use(
   new JwtStrategy(opts, async (payload, done) => {
     try {
       const [rows] = await pool.query(
-        'SELECT id, name, email, phone, role, preferred_area, portfolio FROM users WHERE id = ?',
+        'SELECT id, name, email, phone, role, preferred_area, portfolio, status FROM users WHERE id = ?',
         [payload.sub],
       )
       if (!rows.length) return done(null, false)
+      if (rows[0].status === 'suspended') {
+        // Account suspended by an admin — treat as unauthenticated.
+        return done(null, false)
+      }
       return done(null, rows[0])
     } catch (error) {
       return done(error, false)
@@ -35,6 +39,17 @@ export const requireAuth = (role) => (req, res, next) => {
       return res.status(403).json({ error: `Requires a ${role} account` })
     }
     req.user = user
+    return next()
+  })(req, res, next)
+}
+
+// Same as requireAuth but tolerates missing/invalid tokens: guests pass
+// through with req.user = null. Use only on read-only endpoints (e.g.
+// property detail) where signed-out visitors are allowed.
+export const optionalAuth = (req, res, next) => {
+  passport.authenticate('jwt', { session: false }, (error, user) => {
+    if (error) return next(error)
+    req.user = user || null
     return next()
   })(req, res, next)
 }

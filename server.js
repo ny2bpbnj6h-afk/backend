@@ -6,7 +6,15 @@ import routes from './routes/index.js'
 
 const app = express()
 app.use(cors())
-app.use(express.json())
+// Capture the raw body for webhook HMAC signature verification (the JSON
+// parser still runs — rawBody rides along for /payments/webhook).
+app.use(
+  express.json({
+    verify: (req, _res, buf) => {
+      req.rawBody = buf
+    },
+  }),
+)
 app.use(passport.initialize())
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }))
