@@ -34,8 +34,8 @@ const password = Joi.string()
     'any.required': 'Password is required',
   })
 
-const role = Joi.string().valid('seeker', 'owner').required().messages({
-  'any.only': 'Role must be seeker or owner',
+const role = Joi.string().valid('seeker', 'owner', 'agent').required().messages({
+  'any.only': 'Role must be seeker, owner (landlord) or agent',
   'any.required': 'Role is required',
 })
 
@@ -109,7 +109,7 @@ export const propertyCreateSchema = Joi.object({
     'string.min': 'Title must be at least 3 characters',
     'any.required': 'Title is required',
   }),
-  description: Joi.string().trim().max(5000).allow('').default(''),
+  description: Joi.string().trim().max(5000).allow('', null).default(''),
   area: Joi.string().trim().min(2).max(190).required().messages({
     'string.empty': 'Area is required',
     'any.required': 'Area is required',

@@ -13,6 +13,7 @@ import {
   createProperty,
   getProperty,
   listProperties,
+  listOwnerProperties,
   updateProperty,
   applyToProperty,
   scheduleViewing,
@@ -120,8 +121,9 @@ router.post('/auth/reset-password', validate(resetPasswordSchema), resetPassword
 router.post('/auth/social', validate(socialLoginSchema), socialLogin)
 router.get('/auth/me', requireAuth(), me)
 
-// Properties
-router.post('/properties', requireAuth('owner'), validate(propertyCreateSchema), createProperty)
+// Properties — landlords AND agents can list (requireAuth accepts one role
+// or a list). New listings start pending until an admin approves them.
+router.post('/properties', requireAuth(['owner', 'agent']), validate(propertyCreateSchema), createProperty)
 router.get('/properties', listProperties)
 router.get('/properties/:propertyId', optionalAuth, getProperty)
 
@@ -142,6 +144,7 @@ router.get('/price-alerts', requireAuth(), listPriceAlerts)
 router.post('/properties/:propertyId/inquire', requireAuth(), createInquiry)
 router.get('/my/inquiries', requireAuth(), listMyInquiries)
 router.get('/owner/inquiries', requireAuth(), listOwnerInquiries)
+router.get('/owner/properties', requireAuth(['owner', 'agent']), listOwnerProperties)
 
 // Admin control center — every route requires an admin account.
 router.get('/admin/overview', requireAuth('admin'), overview)

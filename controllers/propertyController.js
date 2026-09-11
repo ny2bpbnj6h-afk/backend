@@ -57,6 +57,31 @@ const imagesFor = async (ids) => {
   return map
 }
 
+// ---- Owner (and agent): my listings ----
+
+// Every property the signed-in landlord/agent owns, newest first. Includes
+// pending/rejected rows so the dashboard can show each one's review status.
+export async function listOwnerProperties(req, res) {
+  try {
+    const [rows] = await pool.query(
+      `SELECT p.* FROM properties p
+       WHERE p.owner_id = ?
+       ORDER BY p.created_at DESC, p.id DESC
+       LIMIT 100`,
+      [req.user.id],
+    )
+    const imageMap = await imagesFor(rows.map((row) => row.id))
+    return res.json({
+      properties: rows.map((row) =>
+        publicProperty(row, imageMap.get(row.id) || []),
+      ),
+    })
+  } catch (error) {
+    console.error('listOwnerProperties failed:', error)
+    return res.status(500).json({ error: 'Could not load your listings' })
+  }
+}
+
 // ---- Owner: listings ----
 
 export async function createProperty(req, res) {
@@ -136,7 +161,20 @@ export async function createProperty(req, res) {
 // decrease triggers price-alert notifications for watching tenants.
 export async function updateProperty(req, res) {
   const propertyId = Number(req.params.propertyId)
-  const { title, description, rentAmount, saleAmount } = req.body
+  const {
+    title,
+    description,
+    area,
+    propertyType,
+    bedrooms,
+    bathrooms,
+    sizeM2,
+    furnished,
+    videoUrl,
+    tourUrl,
+    rentAmount,
+    saleAmount,
+  } = req.body
   try {
     const [rows] = await pool.query('SELECT * FROM properties WHERE id = ?', [propertyId])
     const property = rows[0]
@@ -144,11 +182,16 @@ export async function updateProperty(req, res) {
     if (property.owner_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({ error: 'You can only edit your own listings' })
     }
-    if (rentAmount !== undefined && (Number.isNaN(Number(rentAmount)) || Number(rentAmount) < 0)) {
+    const isNumber = (value) =>
+      value === undefined || value === null || value === '' || !Number.isNaN(Number(value))
+    if (!isNumber(rentAmount) || Number(rentAmount) < 0) {
       return res.status(422).json({ error: 'rentAmount must be a non-negative number' })
     }
-    if (saleAmount !== undefined && saleAmount !== null && (Number.isNaN(Number(saleAmount)) || Number(saleAmount) < 0)) {
+    if (!isNumber(saleAmount) || Number(saleAmount) < 0) {
       return res.status(422).json({ error: 'saleAmount must be a non-negative number' })
+    }
+    if (!isNumber(bedrooms) || !isNumber(bathrooms) || !isNumber(sizeM2)) {
+      return res.status(422).json({ error: 'bedrooms, bathrooms and size must be numbers' })
     }
 
     const oldPrice = priceOfRow(property)
@@ -156,17 +199,44 @@ export async function updateProperty(req, res) {
       `UPDATE properties SET
          title = COALESCE(?, title),
          description = COALESCE(?, description),
+         area = COALESCE(?, area),
+         property_type = COALESCE(?, property_type),
+         bedrooms = COALESCE(?, bedrooms),
+         bathrooms = COALESCE(?, bathrooms),
+         size_m2 = COALESCE(?, size_m2),
+         furnished = COALESCE(?, furnished),
+         video_url = COALESCE(?, video_url),
+         tour_url = COALESCE(?, tour_url),
          rent_amount = COALESCE(?, rent_amount),
          sale_amount = COALESCE(?, sale_amount)
        WHERE id = ?`,
       [
         title?.trim() || null,
         description?.trim() || null,
-        rentAmount === undefined ? null : Number(rentAmount),
-        saleAmount === undefined ? null : saleAmount === null ? null : Number(saleAmount),
+        area?.trim() || null,
+        PROPERTY_TYPES.includes(propertyType) ? propertyType : null,
+        bedrooms === undefined || bedrooms === '' ? null : Number(bedrooms),
+        bathrooms === undefined || bathrooms === '' ? null : Number(bathrooms),
+        sizeM2 === undefined || sizeM2 === '' ? null : Number(sizeM2),
+        ['any', 'furnished', 'unfurnished'].includes(furnished) ? furnished : null,
+        videoUrl === undefined ? null : String(videoUrl || '').trim(),
+        tourUrl === undefined ? null : String(tourUrl || '').trim(),
+        rentAmount === undefined || rentAmount === '' ? null : Number(rentAmount),
+        saleAmount === undefined || saleAmount === '' ? null : saleAmount === null ? null : Number(saleAmount),
         propertyId,
       ],
     )
+
+    // Keep the gallery in sync when the edit includes images.
+    if (Array.isArray(req.body.images)) {
+      await pool.query('DELETE FROM property_images WHERE property_id = ?', [propertyId])
+      if (req.body.images.length) {
+        await pool.query(
+          'INSERT INTO property_images (property_id, url, sort_order) VALUES ?',
+          [req.body.images.filter(Boolean).map((url, index) => [propertyId, url, index])],
+        )
+      }
+    }
 
     const [updated] = await pool.query('SELECT * FROM properties WHERE id = ?', [propertyId])
     const newPrice = priceOfRow(updated[0])
@@ -176,7 +246,11 @@ export async function updateProperty(req, res) {
         console.error('price alert check failed:', alertError.message),
       )
     }
-    return res.json({ ok: true })
+    const imageMap = await imagesFor([propertyId])
+    return res.json({
+      ok: true,
+      property: publicProperty(updated[0], imageMap.get(propertyId) || []),
+    })
   } catch (error) {
     console.error('updateProperty failed:', error)
     return res.status(500).json({ error: 'Could not update the listing' })

@@ -35,8 +35,10 @@ export const requireAuth = (role) => (req, res, next) => {
     if (!user) {
       return res.status(401).json({ error: 'Authentication required' })
     }
-    if (role && user.role !== role) {
-      return res.status(403).json({ error: `Requires a ${role} account` })
+    // `role` may be one role or a list (e.g. landlords AND agents can list).
+    const roles = Array.isArray(role) ? role : role ? [role] : []
+    if (roles.length && !roles.includes(user.role)) {
+      return res.status(403).json({ error: `Requires a ${roles.join(' or ')} account` })
     }
     req.user = user
     return next()
