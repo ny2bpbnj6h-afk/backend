@@ -14,6 +14,7 @@ const publicPost = (row) => ({
   excerpt: row.excerpt,
   content: row.content,
   coverImageUrl: row.cover_image_url,
+  status: row.status,
   views: row.views,
   authorName: row.author_name || 'Housing Agent',
   publishedAt: row.published_at,

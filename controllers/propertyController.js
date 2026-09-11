@@ -6,6 +6,7 @@
 // flip its button label ("Apply Now" <-> "Undo Application") and un-apply
 // when the button is tapped a second time.
 import pool from '../db/index.js'
+import { checkPriceDrops } from './tenantController.js'
 
 const PROPERTY_TYPES = ['apartment', 'condo', 'townhouse', 'house', 'serviced_apartment']
 const PURPOSES = ['rent', 'sale']
@@ -131,6 +132,59 @@ export async function createProperty(req, res) {
 
 // Public listing detail. Signed-in tenants also get their own application
 // and viewing state so the UI can render "Undo" vs "Apply Now".
+// Owner edits their listing. Only the supplied fields change; a price
+// decrease triggers price-alert notifications for watching tenants.
+export async function updateProperty(req, res) {
+  const propertyId = Number(req.params.propertyId)
+  const { title, description, rentAmount, saleAmount } = req.body
+  try {
+    const [rows] = await pool.query('SELECT * FROM properties WHERE id = ?', [propertyId])
+    const property = rows[0]
+    if (!property) return res.status(404).json({ error: 'Property not found' })
+    if (property.owner_id !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'You can only edit your own listings' })
+    }
+    if (rentAmount !== undefined && (Number.isNaN(Number(rentAmount)) || Number(rentAmount) < 0)) {
+      return res.status(422).json({ error: 'rentAmount must be a non-negative number' })
+    }
+    if (saleAmount !== undefined && saleAmount !== null && (Number.isNaN(Number(saleAmount)) || Number(saleAmount) < 0)) {
+      return res.status(422).json({ error: 'saleAmount must be a non-negative number' })
+    }
+
+    const oldPrice = priceOfRow(property)
+    await pool.query(
+      `UPDATE properties SET
+         title = COALESCE(?, title),
+         description = COALESCE(?, description),
+         rent_amount = COALESCE(?, rent_amount),
+         sale_amount = COALESCE(?, sale_amount)
+       WHERE id = ?`,
+      [
+        title?.trim() || null,
+        description?.trim() || null,
+        rentAmount === undefined ? null : Number(rentAmount),
+        saleAmount === undefined ? null : saleAmount === null ? null : Number(saleAmount),
+        propertyId,
+      ],
+    )
+
+    const [updated] = await pool.query('SELECT * FROM properties WHERE id = ?', [propertyId])
+    const newPrice = priceOfRow(updated[0])
+    if (newPrice < oldPrice) {
+      // Fire-and-forget style: alert failures must not fail the edit.
+      await checkPriceDrops(propertyId, oldPrice, newPrice).catch((alertError) =>
+        console.error('price alert check failed:', alertError.message),
+      )
+    }
+    return res.json({ ok: true })
+  } catch (error) {
+    console.error('updateProperty failed:', error)
+    return res.status(500).json({ error: 'Could not update the listing' })
+  }
+}
+
+const priceOfRow = (row) => Number(row.purpose === 'sale' ? row.sale_amount || 0 : row.rent_amount || 0)
+
 export async function getProperty(req, res) {
   const { propertyId } = req.params
   const user = req.user // null for guests (optionalAuth)

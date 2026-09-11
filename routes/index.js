@@ -13,9 +13,20 @@ import {
   createProperty,
   getProperty,
   listProperties,
+  updateProperty,
   applyToProperty,
   scheduleViewing,
 } from '../controllers/propertyController.js'
+import {
+  toggleFavorite,
+  listFavorites,
+  compareProperties,
+  togglePriceAlert,
+  listPriceAlerts,
+  createInquiry,
+  listMyInquiries,
+  listOwnerInquiries,
+} from '../controllers/tenantController.js'
 import {
   overview,
   drilldown,
@@ -64,6 +75,21 @@ import {
 } from '../controllers/financeController.js'
 import { paymentWebhook, verifyPayment } from '../controllers/webhookController.js'
 import {
+  createContactMessage,
+  listLeads,
+  getLead,
+  updateLead,
+  listOutbox,
+} from '../controllers/leadController.js'
+import {
+  postChatMessage,
+  getChatThread,
+  listChatThreads,
+  getAdminChatThread,
+  replyToChatThread,
+  chatUnreadCount,
+} from '../controllers/chatController.js'
+import {
   listBlogPosts,
   getBlogPost,
   adminListPosts,
@@ -82,6 +108,7 @@ import {
   propertyCreateSchema,
   applySchema,
   scheduleSchema,
+  contactMessageSchema,
 } from '../validation/schemas.js'
 
 const router = Router()
@@ -102,6 +129,19 @@ router.get('/properties/:propertyId', optionalAuth, getProperty)
 // (toggle), so the UI can label the button Apply Now <-> Undo.
 router.post('/properties/:propertyId/apply', requireAuth('seeker'), validate(applySchema), applyToProperty)
 router.post('/properties/:propertyId/schedule', requireAuth('seeker'), validate(scheduleSchema), scheduleViewing)
+
+// Owner edits (price changes trigger tenant price alerts).
+router.patch('/properties/:propertyId', requireAuth(), updateProperty)
+
+// Tenant integrations: favorites, compare, alerts, inquiries.
+router.post('/properties/:propertyId/favorite', requireAuth(), toggleFavorite)
+router.get('/favorites', requireAuth(), listFavorites)
+router.post('/properties/compare', requireAuth(), compareProperties)
+router.post('/properties/:propertyId/alert', requireAuth(), togglePriceAlert)
+router.get('/price-alerts', requireAuth(), listPriceAlerts)
+router.post('/properties/:propertyId/inquire', requireAuth(), createInquiry)
+router.get('/my/inquiries', requireAuth(), listMyInquiries)
+router.get('/owner/inquiries', requireAuth(), listOwnerInquiries)
 
 // Admin control center — every route requires an admin account.
 router.get('/admin/overview', requireAuth('admin'), overview)
@@ -203,6 +243,21 @@ router.post('/admin/commission-tiers', requireAuth('admin'), upsertTier)
 router.delete('/admin/commission-tiers/:tierId', requireAuth('admin'), deleteTier)
 router.get('/admin/audit-logs', requireAuth('admin'), listAuditLogs)
 router.post('/admin/revenue/quote-tiers', requireAuth('admin'), quoteWithTiers)
+
+// ---- Leads: contact-form capture + admin CRM (New -> Contacted -> Closed) ----
+router.post('/contact', validate(contactMessageSchema), createContactMessage)
+router.get('/admin/leads', requireAuth('admin'), listLeads)
+router.get('/admin/leads/:leadId', requireAuth('admin'), getLead)
+router.patch('/admin/leads/:leadId', requireAuth('admin'), updateLead)
+router.get('/admin/outbox', requireAuth('admin'), listOutbox)
+
+// ---- Live chat: visitor widget + admin agent inbox ----
+router.post('/chat', optionalAuth, postChatMessage)
+router.get('/chat/:threadKey', optionalAuth, getChatThread)
+router.get('/admin/chat/threads', requireAuth('admin'), listChatThreads)
+router.get('/admin/chat/threads/:threadKey', requireAuth('admin'), getAdminChatThread)
+router.post('/admin/chat/threads/:threadKey/reply', requireAuth('admin'), replyToChatThread)
+router.get('/admin/chat/unread', requireAuth('admin'), chatUnreadCount)
 
 // ---- Blog: public reader + admin publishing ----
 router.get('/blog', listBlogPosts)

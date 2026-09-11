@@ -3,7 +3,11 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import pool from '../db/index.js'
 
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '2h'
+// Long-lived sessions: users stay signed in until they explicitly sign
+// out (or an admin suspends them, which invalidates the token on the next
+// request). Override with JWT_EXPIRES_IN in .env if a shorter life is
+// wanted (e.g. '2h').
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '30d'
 
 const signToken = (user) =>
   jwt.sign(

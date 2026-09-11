@@ -426,6 +426,54 @@ INSERT IGNORE INTO platform_settings (setting_key, setting_value) VALUES
   ('withdrawal_fee_value', '0'),
   ('large_payout_threshold', '5000000');
 
+-- Tenant favorites: one per (tenant, property); toggle idempotent.
+CREATE TABLE IF NOT EXISTS favorites (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id INT UNSIGNED NOT NULL,
+  property_id INT UNSIGNED NOT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY favorites_tenant_property_unique (tenant_id, property_id),
+  KEY favorites_property_idx (property_id),
+  CONSTRAINT favorites_tenant_fk FOREIGN KEY (tenant_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT favorites_property_fk FOREIGN KEY (property_id) REFERENCES properties (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- Price alerts: tenant watches a property; when its price drops, they get
+-- a notification (and the alert records what they were told).
+CREATE TABLE IF NOT EXISTS price_alerts (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  tenant_id INT UNSIGNED NOT NULL,
+  property_id INT UNSIGNED NOT NULL,
+  target_price DECIMAL(14, 2) NULL DEFAULT NULL,
+  last_notified_price DECIMAL(14, 2) NULL DEFAULT NULL,
+  status ENUM('active', 'triggered', 'off') NOT NULL DEFAULT 'active',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY price_alerts_tenant_property_unique (tenant_id, property_id),
+  KEY price_alerts_property_idx (property_id),
+  CONSTRAINT price_alerts_tenant_fk FOREIGN KEY (tenant_id) REFERENCES users (id) ON DELETE CASCADE,
+  CONSTRAINT price_alerts_property_fk FOREIGN KEY (property_id) REFERENCES properties (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- Inquiries: "contact agent" submissions (the tenant-side lead record).
+CREATE TABLE IF NOT EXISTS inquiries (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  property_id INT UNSIGNED NOT NULL,
+  tenant_id INT UNSIGNED NOT NULL,
+  name VARCHAR(120) NOT NULL DEFAULT '',
+  email VARCHAR(190) NOT NULL DEFAULT '',
+  phone VARCHAR(40) NOT NULL DEFAULT '',
+  message TEXT NOT NULL,
+  status ENUM('new', 'contacted', 'closed') NOT NULL DEFAULT 'new',
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY inquiries_property_idx (property_id),
+  KEY inquiries_tenant_idx (tenant_id, created_at),
+  CONSTRAINT inquiries_property_fk FOREIGN KEY (property_id) REFERENCES properties (id) ON DELETE CASCADE,
+  CONSTRAINT inquiries_tenant_fk FOREIGN KEY (tenant_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
 -- Blog articles: admin-authored content marketing (buying guides, rental
 -- tips, market updates, investment advice). slug is the public URL key;
 -- drafts stay hidden until published.
@@ -475,4 +523,72 @@ CREATE TABLE IF NOT EXISTS password_resets (
   PRIMARY KEY (id),
   KEY password_resets_user_idx (user_id),
   CONSTRAINT password_resets_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- Contact-form submissions = the platform's own lead pipeline (distinct from
+-- per-property inquiries). CRM statuses: new -> contacted -> closed (won or
+-- lost). Captured customer details are kept for follow-up.
+CREATE TABLE IF NOT EXISTS contact_messages (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  name VARCHAR(120) NOT NULL,
+  email VARCHAR(190) NOT NULL,
+  phone VARCHAR(40) NOT NULL DEFAULT '',
+  role VARCHAR(40) NOT NULL DEFAULT 'Other',
+  message VARCHAR(3000) NOT NULL,
+  status ENUM('new', 'contacted', 'closed') NOT NULL DEFAULT 'new',
+  source VARCHAR(60) NOT NULL DEFAULT 'contact_page',
+  user_id INT UNSIGNED NULL DEFAULT NULL,
+  admin_notes VARCHAR(2000) NOT NULL DEFAULT '',
+  contacted_at TIMESTAMP NULL DEFAULT NULL,
+  closed_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY contact_messages_status_idx (status, created_at),
+  KEY contact_messages_email_idx (email),
+  CONSTRAINT contact_messages_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- Live chat between visitors/tenants and the support team. Threads are
+-- keyed by an unguessable client-side UUID (the visitor's bearer); agents
+-- reply from the admin panel. No auth table needed for visitors.
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  thread_key VARCHAR(64) NOT NULL,
+  user_id INT UNSIGNED NULL DEFAULT NULL,
+  sender ENUM('visitor', 'agent') NOT NULL DEFAULT 'visitor',
+  sender_name VARCHAR(120) NOT NULL DEFAULT 'Visitor',
+  body VARCHAR(2000) NOT NULL,
+  read_by_admin_at TIMESTAMP NULL DEFAULT NULL,
+  read_by_visitor_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY chat_messages_thread_idx (thread_key, created_at),
+  KEY chat_messages_admin_unread_idx (read_by_admin_at, sender),
+  CONSTRAINT chat_messages_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;
+
+-- Outbound email/WhatsApp queue (notification center delivery layer). Rows
+-- are created by notify(); a delivery worker sends them when provider
+-- credentials are configured. Until then they queue as 'pending' — nothing
+-- is lost, and the admin can inspect exactly what would have been sent.
+CREATE TABLE IF NOT EXISTS outbox (
+  id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  channel ENUM('email', 'whatsapp', 'sms') NOT NULL DEFAULT 'email',
+  recipient VARCHAR(190) NOT NULL,
+  subject VARCHAR(190) NOT NULL DEFAULT '',
+  body VARCHAR(4000) NOT NULL DEFAULT '',
+  template VARCHAR(80) NOT NULL DEFAULT '',
+  status ENUM('pending', 'sent', 'failed') NOT NULL DEFAULT 'pending',
+  attempts INT UNSIGNED NOT NULL DEFAULT 0,
+  last_error VARCHAR(500) NOT NULL DEFAULT '',
+  user_id INT UNSIGNED NULL DEFAULT NULL,
+  entity_type VARCHAR(40) NOT NULL DEFAULT '',
+  entity_id INT UNSIGNED NULL DEFAULT NULL,
+  sent_at TIMESTAMP NULL DEFAULT NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  KEY outbox_status_idx (status, created_at),
+  KEY outbox_recipient_idx (recipient),
+  CONSTRAINT outbox_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE SET NULL
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4;

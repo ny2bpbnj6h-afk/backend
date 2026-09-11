@@ -166,3 +166,20 @@ export const scheduleSchema = Joi.object({
 export const propertyCreate = propertyCreateSchema
 export const apply = applySchema
 export const schedule = scheduleSchema
+
+// Contact-form lead capture (public — rate-limited at the route level).
+export const contactMessageSchema = Joi.object({
+  name,
+  email,
+  phone: Joi.string().trim().max(40).allow('').default(''),
+  role: Joi.string()
+    .trim()
+    .valid('Tenant', 'Landlord', 'Tenant and Landlord', 'Other')
+    .default('Other'),
+  message: Joi.string().trim().min(5).max(3000).required().messages({
+    'string.empty': 'Message is required',
+    'string.min': 'Message must be at least 5 characters',
+    'any.required': 'Message is required',
+  }),
+  source: Joi.string().trim().max(60).allow('').default('contact_page'),
+}).options({ abortEarly: false, stripUnknown: true })
